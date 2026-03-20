@@ -2,16 +2,23 @@ import numpy as np
 import librosa
 import torch
 from torch.utils.data import Dataset
-from pathlib import Path
 from configs.config import AUDIO_DIR, SAMPLE_RATE, DURATION, N_FFT, HOP_LENGTH, N_MELS
 
+
 class BirdDataset(Dataset):
+    """
+    Loads a 5-second mel spectrogram chunk for each clip.
+    - Short clips (<5s) are zero-padded
+    - Long clips get a random 5s crop
+    - Returns (mel, label) where mel is (1, N_MELS, T) and label is (N_CLASSES,)
+    """
+
     def __init__(self, df, label2idx, augment=None):
-        self.df       = df.reset_index(drop=True)
+        self.df        = df.reset_index(drop=True)
         self.label2idx = label2idx
-        self.augment  = augment
-        self.sr       = SAMPLE_RATE
-        self.duration = DURATION
+        self.augment   = augment
+        self.sr        = SAMPLE_RATE
+        self.duration  = DURATION
         self.chunk_len = self.sr * self.duration
 
     def __len__(self):
@@ -40,9 +47,23 @@ class BirdDataset(Dataset):
         mel = librosa.power_to_db(mel, ref=np.max)
         mel = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
 
+        # apply augmentation if provided
+        if self.augment is not None:
+            mel = self.augment(mel)
+
         # label vector — multilabel, shape (N_CLASSES,)
         label = torch.zeros(len(self.label2idx), dtype=torch.float32)
         if str(row['primary_label']) in self.label2idx:
             label[self.label2idx[str(row['primary_label'])]] = 1.0
+
+        # secondary labels as soft targets (weight 0.5)
+        if isinstance(row.get('secondary_labels'), str):
+            import ast
+            try:
+                for sec in ast.literal_eval(row['secondary_labels']):
+                    if str(sec) in self.label2idx:
+                        label[self.label2idx[str(sec)]] = 0.5
+            except Exception:
+                pass
 
         return mel, label
