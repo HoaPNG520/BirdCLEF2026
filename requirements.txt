@@ -1,0 +1,28 @@
+# core data
+numpy>=1.24
+pandas>=2.0
+
+# audio
+librosa>=0.10
+soundfile>=0.12
+
+# deep learning — install torch separately (see below)
+torchaudio>=2.0
+torchvision>=0.18
+
+# model backbones
+timm>=1.0
+
+# training utilities
+scikit-learn>=1.4
+tqdm>=4.65
+
+# experiment tracking
+wandb>=0.17
+
+# visualization
+matplotlib>=3.8
+seaborn>=0.13
+
+# notebook
+ipykernel>=6.29

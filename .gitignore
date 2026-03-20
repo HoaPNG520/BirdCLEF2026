@@ -1,0 +1,12 @@
+Set-Content birdclef-2026\.gitignore @"
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.pth
+*.ckpt
+outputs/
+checkpoints/
+*.ogg
+*.wav
+.env
+"@
