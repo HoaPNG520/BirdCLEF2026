@@ -13,7 +13,7 @@ from configs.config import AUDIO_DIR, SAMPLE_RATE, DURATION, N_FFT, HOP_LENGTH, 
 # These functions load the files saved by the EDA notebook.
 # The ML team should never need to rebuild these from scratch.
 
-ARTIFACT_DIR = Path("/kaggle/working/eda_artifacts")
+ARTIFACT_DIR = Path("/kaggle/input/birdclef-eda-artifacts")
 
 
 def load_label2idx(path=None):
