@@ -73,5 +73,4 @@ def train_xgboost():
     xgb_clf.save_model(model_save_path)
     print(f"\nModel successfully saved to {model_save_path}")
 
-if __name__ == "__main__":
-    train_xgboost()
+
