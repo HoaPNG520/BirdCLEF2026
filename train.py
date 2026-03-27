@@ -15,8 +15,8 @@ def train_xgboost():
     print("Loading pre-extracted embeddings from disk...")
     # LOAD THE .NPY FILES
     try:
-        X_embeddings = np.load("./X_embeddings.npy")
-        y_raw_labels = np.load("./y_labels.npy")
+        X_embeddings = np.load("X_embeddings.npy")
+        y_raw_labels = np.load("y_labels.npy")
     except FileNotFoundError:
         print("Error: Could not find .npy files. Run extract_features.py first!")
         return
@@ -24,11 +24,20 @@ def train_xgboost():
     print(f"Loaded shape: X={X_embeddings.shape}, y={y_raw_labels.shape}")
 
     # Encode Labels
+    label_encoder = LabelEncoder()
+    y_encoded = label_encoder.fit_transform(y_raw_labels)
+    
+    # Dynamically count the exact number of classes we ended up with
+    actual_num_classes = len(np.unique(y_encoded))
+    print(f"Detected {actual_num_classes} unique bird classes.")
 
+    # Save the encoder so you can translate predictions back later
+    with open("label_encode.pkl", "wb") as f:
+        pickle.dump(label_encoder, f)
 
     # Train/Val Split
     X_train, X_val, y_train, y_val = train_test_split(
-        X_embeddings, y_raw_labels, test_size=0.2, random_state=42, stratify=y_raw_labels
+        X_embeddings, y_encoded, test_size=0.2, random_state=42, stratify=None
     )
 
     # Train XGBoost
