@@ -4,14 +4,17 @@ import pandas as pd
 import librosa
 import tensorflow as tf
 import tensorflow_hub as hub
+from configs.config import *
+from extract_feature import *
+from data.dataset import load_df_clean, load_label2idx
 
 # --- CONFIGURATION ---
 PERCH_TF_HUB_URL = "https://tfhub.dev/google/bird-vocalization-classifier/4"
 SAMPLE_RATE = 32000
 DURATION = 5.0
 AUDIO_LENGTH = int(SAMPLE_RATE * DURATION)
-CSV_PATH = "data/raw/train.csv" 
-AUDIO_FOLDER = "data/raw/audio_files/"
+CSV_PATH = BASE_DIR_ARTIFACT / "df_clean.csv"
+AUDIO_FOLDER = AUDIO_DIR 
 
 print("Loading Perch model from TF Hub...")
 perch_model = hub.load(PERCH_TF_HUB_URL)
@@ -39,7 +42,7 @@ def extract_embeddings(df, audio_dir):
             embedding = model_output['embeddings'].numpy()[0]
             
             embeddings_list.append(embedding)
-            labels_list.append(row['primary_label'])
+            labels_list.append(row['encoded_label'])
             
             if (index + 1) % 50 == 0:
                 print(f"Processed {index + 1}/{len(df)} files...")
@@ -47,18 +50,21 @@ def extract_embeddings(df, audio_dir):
             print(f"Error processing {file_path}: {e}")
             
     return np.array(embeddings_list), np.array(labels_list)
+def run_extraction():
+    df =  load_df_clean()
+    label2idx = load_label2idx()
+    df['encoded_label'] = df['primary_label'].map(label2idx)
+    X_embeddings, y_labels = extract_embeddings(df, AUDIO_FOLDER)
 
-# if __name__ == "__main__":
-#     # Ensure data folder exists for saving
-#     os.makedirs("data", exist_ok=True)
+
+# Choose your save directory (use 'data/' if local, '/kaggle/working/' if on Kaggle)
+    save_dir = "/kaggle/working/" # Change to "/kaggle/working/" if running in a Kaggle Notebook
     
-#     df = pd.read_csv(CSV_PATH)
-#     # NOTE: You might want to test with df.head(100) first to make sure it works!
+    # Ensure the folder actually exists before saving
+    os.makedirs(save_dir, exist_ok=True)
     
-#     X_embeddings, y_labels = extract_embeddings(df, AUDIO_FOLDER)
+    # Save the arrays
+    np.save(os.path.join(save_dir, "X_embeddings.npy"), X_embeddings)
+    np.save(os.path.join(save_dir, "y_labels.npy"), y_labels)
     
-#     # SAVE TO .NPY FILES
-#     np.save("data/X_embeddings.npy", X_embeddings)
-#     np.save("data/y_labels.npy", y_labels)
-    
-#     print("SUCCESS! Saved X_embeddings.npy and y_labels.npy to the data/ folder.")
+    print(f"Success! Files saved to {save_dir}")
