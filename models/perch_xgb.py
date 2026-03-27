@@ -27,6 +27,11 @@ os.makedirs("models", exist_ok=True)
 # ==========================================
 print("Loading Perch model from TF Hub...")
 perch_model = hub.load(PERCH_TF_HUB_URL)
+# # Check if the model has a signature or is callable
+# if hasattr(perch_model, '__call__'):
+#     print("Model loaded successfully and is callable.")
+# else:
+#     print("Model loaded, but might not be an executable signature.")
 
 def load_and_preprocess_audio(file_path):
     """Loads an audio file, resamples to 32kHz, and pads/crops to exactly 5 seconds."""
@@ -98,7 +103,7 @@ if __name__ == "__main__":
     y_encoded = label_encoder.fit_transform(y_raw_labels)
     
     # Save the label encoder to translate XGBoost numbers back to bird IDs later
-    with open("models/label_encoder.pkl", "wb") as f:
+    with open("models/label_encode.pkl", "wb") as f:
         pickle.dump(label_encoder, f)
         
     # --- D. Train/Validation Split ---
