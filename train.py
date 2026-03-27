@@ -15,8 +15,8 @@ def train_xgboost():
     print("Loading pre-extracted embeddings from disk...")
     # LOAD THE .NPY FILES
     try:
-        X_embeddings = np.load("./X_embeddings.npy")
-        y_raw_labels = np.load("./y_labels.npy")
+        X_embeddings = np.load("X_embeddings.npy")
+        y_raw_labels = np.load("y_labels.npy")
     except FileNotFoundError:
         print("Error: Could not find .npy files. Run extract_features.py first!")
         return
