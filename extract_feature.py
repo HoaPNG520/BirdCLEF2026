@@ -48,17 +48,17 @@ def extract_embeddings(df, audio_dir):
             
     return np.array(embeddings_list), np.array(labels_list)
 
-if __name__ == "__main__":
-    # Ensure data folder exists for saving
-    os.makedirs("data", exist_ok=True)
+# if __name__ == "__main__":
+#     # Ensure data folder exists for saving
+#     os.makedirs("data", exist_ok=True)
     
-    df = pd.read_csv(CSV_PATH)
-    # NOTE: You might want to test with df.head(100) first to make sure it works!
+#     df = pd.read_csv(CSV_PATH)
+#     # NOTE: You might want to test with df.head(100) first to make sure it works!
     
-    X_embeddings, y_labels = extract_embeddings(df, AUDIO_FOLDER)
+#     X_embeddings, y_labels = extract_embeddings(df, AUDIO_FOLDER)
     
-    # SAVE TO .NPY FILES
-    np.save("data/X_embeddings.npy", X_embeddings)
-    np.save("data/y_labels.npy", y_labels)
+#     # SAVE TO .NPY FILES
+#     np.save("data/X_embeddings.npy", X_embeddings)
+#     np.save("data/y_labels.npy", y_labels)
     
-    print("SUCCESS! Saved X_embeddings.npy and y_labels.npy to the data/ folder.")
+#     print("SUCCESS! Saved X_embeddings.npy and y_labels.npy to the data/ folder.")
