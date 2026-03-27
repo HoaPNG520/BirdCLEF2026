@@ -1,55 +1,53 @@
+import json
+import ast
 import numpy as np
 import librosa
 import torch
 from torch.utils.data import Dataset
+from pathlib import Path
 from configs.config import AUDIO_DIR, SAMPLE_RATE, DURATION, N_FFT, HOP_LENGTH, N_MELS
 
-
 class BirdDataset(Dataset):
-    """
-    Loads a 5-second mel spectrogram chunk for each clip.
-    - Short clips (<5s) are zero-padded
-    - Long clips get a random 5s crop
-    - Returns (mel, label) where mel is (1, N_MELS, T) and label is (N_CLASSES,)
-    """
-
     def __init__(self, df, label2idx, augment=None):
-        self.df        = df.reset_index(drop=True)
+        self.df       = df.reset_index(drop=True)
         self.label2idx = label2idx
-        self.augment   = augment
-        self.sr        = SAMPLE_RATE
-        self.duration  = DURATION
+        self.augment  = augment
+        self.sr       = SAMPLE_RATE
+        self.duration = DURATION
         self.chunk_len = self.sr * self.duration
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
-        row   = self.df.iloc[idx]
-        fpath = AUDIO_DIR / row['filename']
+        row = self.df.iloc[idx]
+        fpath = AUDIO_DIR / row["filename"]
 
-        # load audio
-        y, _ = librosa.load(fpath, sr=self.sr, mono=True)
+        # ── load audio ────────────────────────────────────────
+        y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
 
-        # pad if shorter than 5s, else take a random 5s crop
+        # ── crop or pad to exactly 5 seconds ──────────────────
         if len(y) < self.chunk_len:
             y = np.pad(y, (0, self.chunk_len - len(y)))
         else:
-            start = np.random.randint(0, len(y) - self.chunk_len + 1)
-            y = y[start:start + self.chunk_len]
+            if self.mode == "train":
+                start = np.random.randint(0, len(y) - self.chunk_len + 1)
+            else:
+                start = (len(y) - self.chunk_len) // 2
+            y = y[start : start + self.chunk_len]
 
-        # mel spectrogram → (1, N_MELS, T)
+        # ── mel spectrogram → (1, N_MELS, T) ─────────────────
         mel = librosa.feature.melspectrogram(
-            y=y, sr=self.sr, n_fft=N_FFT,
-            hop_length=HOP_LENGTH, n_mels=N_MELS,
-            fmin=20, fmax=16000
+            y=y,
+            sr=SAMPLE_RATE,
+            n_fft=N_FFT,
+            hop_length=HOP_LENGTH,
+            n_mels=N_MELS,
+            fmin=20,
+            fmax=16000,
         )
         mel = librosa.power_to_db(mel, ref=np.max)
         mel = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
-
-        # apply augmentation if provided
-        if self.augment is not None:
-            mel = self.augment(mel)
 
         # label vector — multilabel, shape (N_CLASSES,)
         label = torch.zeros(len(self.label2idx), dtype=torch.float32)
