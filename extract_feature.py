@@ -50,10 +50,14 @@ def extract_embeddings(df, audio_dir):
             print(f"Error processing {file_path}: {e}")
             
     return np.array(embeddings_list), np.array(labels_list)
+
 def run_extraction():
-    df =  load_df_clean()
+    df = load_df_clean()
     label2idx = load_label2idx()
     df['encoded_label'] = df['primary_label'].map(label2idx)
+    
+    # In your previous screenshot, you mapped to 'encoded_label', 
+    # but be sure to pass that correctly to extract_embeddings if needed!
     X_embeddings, y_labels = extract_embeddings(df, AUDIO_FOLDER)
 
 
@@ -62,9 +66,11 @@ def run_extraction():
     
     # Ensure the folder actually exists before saving
     os.makedirs(save_dir, exist_ok=True)
-    
-    # Save the arrays
+
     np.save(os.path.join(save_dir, "X_embeddings.npy"), X_embeddings)
     np.save(os.path.join(save_dir, "y_labels.npy"), y_labels)
-    
+
     print(f"Success! Files saved to {save_dir}")
+    
+    # Optional: return them so you can use them immediately in your Kaggle notebook cell
+    return X_embeddings, y_labels
