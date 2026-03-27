@@ -1,11 +1,13 @@
 from pathlib import Path
 
 # ── paths ──────────────────────────────────────────────────
-BASE_DIR  = Path("/kaggle/input/competitions/birdclef-2026")
-AUDIO_DIR = BASE_DIR / "train_audio"
-TEST_DIR  = BASE_DIR / "test_soundscapes"
-TRAIN_CSV = BASE_DIR / "train.csv"
-TAXONOMY  = BASE_DIR / "taxonomy.csv"
+BASE_DIR_COMPETITION  = Path("/kaggle/input/competitions/birdclef-2026")
+AUDIO_DIR = BASE_DIR_COMPETITION / "train_audio"
+TEST_DIR  = BASE_DIR_COMPETITION / "test_soundscapes"
+TRAIN_CSV = BASE_DIR_COMPETITION / "train.csv"
+TAXONOMY  = BASE_DIR_COMPETITION / "taxonomy.csv"
+
+BASE_DIR_ARTIFACT = Path("/kaggle/input/datasets/haphngngcgia/birdclef-eda-artifacts")
 
 # ── audio ──────────────────────────────────────────────────
 SAMPLE_RATE = 32_000
