@@ -57,7 +57,7 @@ def run_extraction():
     X_embeddings, y_labels = extract_embeddings(df, AUDIO_FOLDER)
 
 
-# Choose your save directory (use 'data/' if local, '/kaggle/working/' if on Kaggle)
+    # Choose your save directory (use 'data/' if local, '/kaggle/working/' if on Kaggle)
     save_dir = "/kaggle/working/" # Change to "/kaggle/working/" if running in a Kaggle Notebook
     
     # Ensure the folder actually exists before saving
