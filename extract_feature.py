@@ -38,8 +38,8 @@ def extract_embeddings(df, audio_dir):
             waveform_batched = tf.expand_dims(waveform, axis=0)
             
             # Pass through Perch
-            model_output = perch_model.infer_tf(waveform_batched)
-            embedding = model_output['embeddings'].numpy()[0]
+            logits, embeddings_output = perch_model.infer_tf(waveform_batched)
+            embedding = embeddings_output.numpy()[0]
             
             embeddings_list.append(embedding)
             labels_list.append(row['encoded_label'])
