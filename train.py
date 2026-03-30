@@ -50,7 +50,8 @@ def train_xgboost():
         learning_rate=0.05,
         subsample=0.8,
         colsample_bytree=0.8,
-        tree_method='hist',          
+        tree_method='hist',  
+        device='cuda',
         random_state=42
     )
 
