@@ -37,7 +37,7 @@ def train_xgboost():
 
     # Train/Val Split
     X_train, X_val, y_train, y_val = train_test_split(
-        X_embeddings, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+        X_embeddings, y_encoded, test_size=0.2, random_state=42, stratify=None
     )
 
     # Train XGBoost
@@ -67,7 +67,8 @@ def train_xgboost():
     
     print("\n--- Validation Results ---")
     print(f"Accuracy: {accuracy_score(y_val, val_preds):.4f}")
-    print(f"Log Loss: {log_loss(y_val, val_probs):.4f}")
+    # print(f"Log Loss: {log_loss(y_val, val_probs):.4f}")
+    print(f"Log Loss: {log_loss(y_val, val_probs, labels=xgb_clf.classes_):.4f}")
 
     # Save Model
     model_save_path = "/kaggle/working/birdclef2026/bird_xgb_model.json"
