@@ -37,7 +37,7 @@ def train_xgboost():
 
     # Train/Val Split
     X_train, X_val, y_train, y_val = train_test_split(
-        X_embeddings, y_encoded, test_size=0.2, random_state=42, stratify=None
+        X_embeddings, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
     )
 
     # Train XGBoost
