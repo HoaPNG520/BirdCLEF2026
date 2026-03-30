@@ -15,8 +15,8 @@ def train_xgboost():
     print("Loading pre-extracted embeddings from disk...")
     # LOAD THE .NPY FILES
     try:
-        X_embeddings = np.load("X_embeddings.npy")
-        y_raw_labels = np.load("y_labels.npy")
+        X_embeddings = np.load("/kaggle/working/X_embeddings.npy")
+        y_raw_labels = np.load("/kaggle/working/y_labels.npy")
     except FileNotFoundError:
         print("Error: Could not find .npy files. Run extract_features.py first!")
         return
@@ -69,7 +69,7 @@ def train_xgboost():
     print(f"Log Loss: {log_loss(y_val, val_probs):.4f}")
 
     # Save Model
-    model_save_path = "bird_xgb_model.json"
+    model_save_path = "/kaggle/working/bird_xgb_model.json"
     xgb_clf.save_model(model_save_path)
     print(f"\nModel successfully saved to {model_save_path}")
 
