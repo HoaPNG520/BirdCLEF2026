@@ -1,35 +1,25 @@
 """
 train.py
 ========
-Trains XGBoost on Perch embeddings extracted by extract_feature.py.
-
-KEY FIX — 206 vs 234 classes:
-  The old code used LabelEncoder.fit_transform(y_raw_labels) which only
-  sees the 206 species present in training data. Zero-shot species get
-  no index and the model outputs 206 dimensions instead of 234.
-
-  The fix: use label2idx from EDA artifacts which covers all 234 taxonomy
-  species. Zero-shot species just never appear in training but they exist
-  in the mapping so the model can output a 0.0 probability for them.
-
-GPU:
-  XGBoost uses device='cuda' automatically.
-  TensorFlow (Perch) uses GPU automatically if configured.
+Trains a PyTorch Neural Network on Perch embeddings.
+Fixes the 206 vs 234 classes issue natively using BCEWithLogitsLoss.
+Implements WeightedRandomSampler for the extreme class imbalance.
 """
 
-import os
 import json
-import pickle
 import numpy as np
-import xgboost as xgb
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from pathlib import Path
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import log_loss, average_precision_score
 
-from configs.config import BASE_DIR_ARTIFACT, BASE_DIR_MODELS, N_CLASSES
+from configs.config import BASE_DIR_MODELS, N_CLASSES
 from data.dataset import load_label2idx
 
-EMB_DIR  = Path("/kaggle/working/birdclef-embeddings")
+EMB_DIR = Path("/kaggle/working/birdclef-embeddings")
 SAVE_DIR = BASE_DIR_MODELS
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -46,11 +36,7 @@ def padded_cmap(y_true_bin, y_pred_prob, padding=5):
 
 
 def labels_to_binary_matrix(y_labels_str, label2idx):
-    """
-    Convert string label array to binary matrix of shape (N, 234).
-    Each row has 1.0 at the species index, 0.0 everywhere else.
-    Zero-shot species columns are always 0.0 in training.
-    """
+    """Convert string label array to binary matrix of shape (N, 234)."""
     n = len(y_labels_str)
     n_classes = len(label2idx)
     matrix = np.zeros((n, n_classes), dtype=np.float32)
@@ -60,102 +46,134 @@ def labels_to_binary_matrix(y_labels_str, label2idx):
     return matrix
 
 
-def train_xgboost():
-    # ── load embeddings ───────────────────────────────────────
+class PerchDataset(Dataset):
+    """Simple PyTorch dataset for pre-extracted embeddings."""
+
+    def __init__(self, X, y_bin):
+        self.X = torch.tensor(X, dtype=torch.float32)
+        self.y = torch.tensor(y_bin, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+class BirdMLP(nn.Module):
+    """Multi-Layer Perceptron for 1D Perch embeddings."""
+
+    def __init__(self, input_dim=1280, num_classes=N_CLASSES):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(256, num_classes),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+def train_pytorch():
     print("Loading embeddings...")
     try:
         X = np.load(EMB_DIR / "X_embeddings.npy")
-        y_labels = np.load(EMB_DIR / "y_labels.npy")
+        y_labels_str = np.load(EMB_DIR / "y_labels.npy")
     except FileNotFoundError:
         print("Embeddings not found. Run extract_feature.py first.")
         return
 
-    print(f"X shape : {X.shape}")   # (N, 1280)
-    print(f"y shape : {y_labels.shape}")  # (N,)
-
-    # ── load label2idx from EDA artifacts — covers all 234 species ──
-    # CRITICAL: do NOT use LabelEncoder here.
-    # LabelEncoder only sees 206 training species → wrong output size.
-    # label2idx covers all 234 taxonomy species → correct output size.
     label2idx = load_label2idx()
-    idx2label = {v: k for k, v in label2idx.items()}
+    y_bin = labels_to_binary_matrix(y_labels_str, label2idx)
 
-    print(f"label2idx covers : {len(label2idx)} species (should be 234)")
+    # Get primary integer labels for StratifiedKFold and Sampler
+    y_primary_idx = np.array([label2idx.get(str(l), 0) for l in y_labels_str])
 
-    # convert string labels to integer indices using label2idx
-    y_encoded = np.array([
-        label2idx.get(str(l), 0) for l in y_labels
-    ], dtype=np.int32)
-
-    unique_classes = np.unique(y_encoded)
-    print(f"Unique classes in training: {len(unique_classes)} (of 234 taxonomy)")
-
-    # ── stratified K-fold — same seed as data team ────────────
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     fold_scores = []
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Training on: {device}")
 
-    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y_encoded)):
-        print(f"\n{'='*50}")
-        print(f"FOLD {fold}")
-        print(f"{'='*50}")
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y_primary_idx)):
+        print(f"\n{'='*50}\nFOLD {fold}\n{'='*50}")
 
-        X_train, X_val   = X[train_idx], X[val_idx]
-        y_train, y_val   = y_encoded[train_idx], y_encoded[val_idx]
-        y_val_str        = y_labels[val_idx]
+        X_train, X_val = X[train_idx], X[val_idx]
+        y_train_bin, y_val_bin = y_bin[train_idx], y_bin[val_idx]
+        y_train_prim = y_primary_idx[train_idx]
 
-        # ── XGBoost ───────────────────────────────────────────
-        # num_class MUST be 234 — matches submission CSV columns
-        # Even though training only has 206 classes, XGBoost needs
-        # to output 234 probabilities for the full taxonomy
-        clf = xgb.XGBClassifier(
-            objective        = 'multi:softprob',
-            num_class        = N_CLASSES,       # 234 — not len(unique_classes)
-            n_estimators     = 300,
-            max_depth        = 6,
-            learning_rate    = 0.05,
-            subsample        = 0.8,
-            colsample_bytree = 0.8,
-            tree_method      = 'hist',
-            device           = 'cuda',          # GPU
-            random_state     = 42,
-            eval_metric      = 'mlogloss',
+        train_dataset = PerchDataset(X_train, y_train_bin)
+        val_dataset = PerchDataset(X_val, y_val_bin)
+
+        # ── WeightedRandomSampler implementation ────────────────────────
+        class_counts = np.bincount(y_train_prim, minlength=N_CLASSES)
+        class_weights = np.zeros(N_CLASSES, dtype=np.float32)
+        valid_classes = class_counts > 0
+        class_weights[valid_classes] = 1.0 / class_counts[valid_classes]
+
+        sample_weights = class_weights[y_train_prim]
+        sampler = WeightedRandomSampler(
+            weights=sample_weights, num_samples=len(sample_weights), replacement=True
         )
 
-        clf.fit(
-            X_train, y_train,
-            eval_set    = [(X_val, y_val)],
-            verbose     = 50,
-        )
+        train_loader = DataLoader(train_dataset, batch_size=64, sampler=sampler)
+        val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False)
 
-        # ── evaluate with padded-cMAP ─────────────────────────
-        val_probs     = clf.predict_proba(X_val)  # (N_val, 234)
-        y_val_bin     = labels_to_binary_matrix(y_val_str, label2idx)
+        model = BirdMLP().to(device)
+        criterion = nn.BCEWithLogitsLoss()
+        optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-        cmap  = padded_cmap(y_val_bin, val_probs)
-        ll    = log_loss(y_val, val_probs, labels=list(range(N_CLASSES)))
+        best_cmap = 0.0
+        epochs = 15
 
-        print(f"Fold {fold} — cMAP: {cmap:.4f}  log_loss: {ll:.4f}")
-        fold_scores.append(cmap)
+        for epoch in range(epochs):
+            model.train()
+            train_loss = 0.0
 
-        # save each fold model
-        fold_path = SAVE_DIR / f"xgb_fold{fold}.json"
-        clf.save_model(fold_path)
-        print(f"Saved: {fold_path}")
+            for inputs, targets in train_loader:
+                inputs, targets = inputs.to(device), targets.to(device)
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+
+            # Evaluation
+            model.eval()
+            val_preds = []
+            with torch.no_grad():
+                for inputs, _ in val_loader:
+                    inputs = inputs.to(device)
+                    # Convert logits to probabilities
+                    outputs = torch.sigmoid(model(inputs))
+                    val_preds.append(outputs.cpu().numpy())
+
+            val_preds = np.vstack(val_preds)
+            cmap = padded_cmap(y_val_bin, val_preds)
+
+            if cmap > best_cmap:
+                best_cmap = cmap
+                torch.save(model.state_dict(), SAVE_DIR / f"pt_fold{fold}.pth")
+
+            print(
+                f"Epoch {epoch+1:02d} | Train Loss: {train_loss/len(train_loader):.4f} | Val cMAP: {cmap:.4f}"
+            )
+
+        print(f"Fold {fold} Best OOF cMAP: {best_cmap:.4f}")
+        fold_scores.append(best_cmap)
 
     print(f"\nMean OOF cMAP: {np.mean(fold_scores):.4f}")
-    print(f"Per-fold      : {[round(s,4) for s in fold_scores]}")
 
-    # ── save label2idx alongside model ────────────────────────
-    # inference needs this to build the submission CSV correctly
     with open(SAVE_DIR / "label2idx.json", "w") as f:
         json.dump(label2idx, f, indent=2)
-    print(f"\nSaved label2idx.json alongside models")
-    print(f"All files in {SAVE_DIR}:")
-    for f in sorted(SAVE_DIR.iterdir()):
-        print(f"  {f.name}  {f.stat().st_size/1024:.1f} KB")
-
-    return fold_scores
 
 
 if __name__ == "__main__":
-    train_xgboost()
+    train_pytorch()
