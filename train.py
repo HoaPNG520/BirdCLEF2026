@@ -19,7 +19,8 @@ from sklearn.metrics import log_loss, average_precision_score
 from configs.config import BASE_DIR_MODELS, N_CLASSES
 from data.dataset import load_label2idx
 
-EMB_DIR = Path("/kaggle/working/birdclef-embeddings")
+EMB_DIR = Path("/kaggle/input/datasets/haphngngcgia/birdclef2026-embeddings")
+
 SAVE_DIR = BASE_DIR_MODELS
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
