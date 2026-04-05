@@ -174,6 +174,8 @@ def train_pytorch():
 
     with open(SAVE_DIR / "label2idx.json", "w") as f:
         json.dump(label2idx, f, indent=2)
+        
+    return fold_scores
 
 
 if __name__ == "__main__":
