@@ -1,210 +1,180 @@
+"""
+train.py (UPDATED with Mixup)
+========
+Trains a PyTorch Neural Network on Perch embeddings + Mixup augmentation.
+"""
+
+import json
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, WeightedRandomSampler
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from pathlib import Path
-from tqdm import tqdm
 
-from configs.config import N_CLASSES, BATCH_SIZE, NUM_WORKERS
-from data.dataset import BirdDataset, load_df_clean, load_label2idx
-from data.folds import make_folds, get_fold
-from data.augment import get_spec_augment
+from configs.config import BASE_DIR_MODELS, N_CLASSES
+from data.dataset import load_label2idx
+from augment import mixup          # ← NEW: import your mixup function
+
+EMB_DIR = Path("/kaggle/input/datasets/haphngngcgia/birdclef2026-embeddings")
+SAVE_DIR = BASE_DIR_MODELS
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ── Metric ────────────────────────────────────────────────────
-
-
-def padded_cmap(labels, preds, padding=5):
-    """
-    Padded competition metric — mean average precision per class.
-    Padding adds dummy negatives to prevent inflated scores on rare classes.
-    Custom implementation — the padding strategy is BirdCLEF-specific.
-    """
-    from sklearn.metrics import average_precision_score
-
+def padded_cmap(y_true_bin, y_pred_prob, padding=5):
+    """BirdCLEF competition metric — mean AP with padding."""
     scores = []
-    for i in range(labels.shape[1]):
-        y_true = np.concatenate([labels[:, i], np.zeros(padding)])
-        y_pred = np.concatenate([preds[:, i], np.zeros(padding)])
-        if y_true.sum() > 0:
-            scores.append(average_precision_score(y_true, y_pred))
+    for i in range(y_true_bin.shape[1]):
+        yt = np.concatenate([y_true_bin[:, i], np.zeros(padding)])
+        yp = np.concatenate([y_pred_prob[:, i], np.zeros(padding)])
+        if yt.sum() > 0:
+            scores.append(average_precision_score(yt, yp))
     return float(np.mean(scores)) if scores else 0.0
 
 
-# ── Train / val loops ─────────────────────────────────────────
+def labels_to_binary_matrix(y_labels_str, label2idx):
+    """Convert string label array to binary matrix of shape (N, 234)."""
+    n = len(y_labels_str)
+    n_classes = len(label2idx)
+    matrix = np.zeros((n, n_classes), dtype=np.float32)
+    for i, label in enumerate(y_labels_str):
+        if str(label) in label2idx:
+            matrix[i, label2idx[str(label)]] = 1.0
+    return matrix
 
 
-def train_one_epoch(model, loader, optimizer, criterion, device, augment=None):
-    model.train()
-    total_loss = 0
+class PerchDataset(Dataset):
+    """Simple PyTorch dataset for pre-extracted embeddings."""
+    def __init__(self, X, y_bin):
+        self.X = torch.tensor(X, dtype=torch.float32)
+        self.y = torch.tensor(y_bin, dtype=torch.float32)
 
-    for mel, label in tqdm(loader, desc="train", leave=False):
-        mel, label = mel.to(device), label.to(device)
+    def __len__(self):
+        return len(self.X)
 
-        if augment is not None:
-            mel = torch.stack([augment(m) for m in mel])
-
-        optimizer.zero_grad()
-        loss = criterion(model(mel), label)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-
-    return total_loss / len(loader)
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
 
 
-@torch.no_grad()
-def validate(model, loader, criterion, device):
-    model.eval()
-    total_loss = 0
-    all_preds, all_labels = [], []
-
-    for mel, label in tqdm(loader, desc="val  ", leave=False):
-        mel, label = mel.to(device), label.to(device)
-        logits = model(mel)
-        total_loss += criterion(logits, label).item()
-        all_preds.append(torch.sigmoid(logits).cpu().numpy())
-        all_labels.append(label.cpu().numpy())
-
-    preds = np.concatenate(all_preds)
-    labels = np.concatenate(all_labels)
-    return total_loss / len(loader), preds, labels
-
-
-# ── Main entry point ──────────────────────────────────────────
-
-
-def train_fold(
-    fold=0,
-    epochs=20,
-    batch_size=32,
-    lr=1e-3,
-    save_dir="/kaggle/working/",
-    max_batches=None,
-    device=None,
-    artifact_dir=None,
-):
-    """
-    Train one fold of the BirdCLEF+ 2026 pipeline.
-
-    Loads df_clean and label2idx from EDA artifacts — no need
-    to re-run the full EDA scan before training.
-
-    Args:
-        fold        : which fold to use as validation (0–4)
-        epochs      : number of training epochs
-        batch_size  : samples per batch
-        lr          : initial learning rate for AdamW
-        save_dir    : where to save best checkpoint
-        max_batches : limit batches per epoch (smoke test only)
-        device      : 'cuda' or 'cpu' (auto-detected if None)
-        artifact_dir: override path to EDA artifacts
-    """
-
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device}  |  Fold: {fold}  |  Epochs: {epochs}")
-
-    # ── load EDA artifacts ────────────────────────────────────
-    # These were saved by Cell 15 of the EDA notebook.
-    # No need to re-run audio scan or rebuild label2idx.
-    df = load_df_clean(artifact_dir)
-    label2idx = load_label2idx(artifact_dir)
-
-    # ── folds ─────────────────────────────────────────────────
-    df = make_folds(df)
-    train_df, val_df = get_fold(df, fold)
-
-    # ── weighted sampler — from EDA-computed weights ──────────
-    # sample_weight column was precomputed in EDA Cell 13.
-    # Rare species get sampled more often than dominant ones.
-    if "sample_weight" in train_df.columns:
-        weights = torch.tensor(train_df["sample_weight"].values, dtype=torch.float)
-        sampler = WeightedRandomSampler(
-            weights, num_samples=len(weights), replacement=True
-        )
-        shuffle = False  # sampler replaces shuffle
-    else:
-        sampler = None
-        shuffle = True
-
-    # ── datasets and loaders ──────────────────────────────────
-    augment = get_spec_augment()
-    train_ds = BirdDataset(train_df, label2idx, augment=augment, mode="train")
-    val_ds = BirdDataset(val_df, label2idx, augment=None, mode="val")
-
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        sampler=sampler,
-        shuffle=shuffle,
-        num_workers=NUM_WORKERS,
-        pin_memory=True,
-    )
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=NUM_WORKERS,
-        pin_memory=True,
-    )
-
-    # ── model — EfficientNet-B0 via timm ──────────────────────
-    import timm
-
-    model = timm.create_model(
-        "efficientnet_b0", pretrained=True, in_chans=1, num_classes=N_CLASSES
-    )
-    model = model.to(device)
-
-    # ── optimizer + scheduler + loss ──────────────────────────
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    criterion = nn.BCEWithLogitsLoss()
-
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    best_cmap = 0.0
-
-    # ── training loop ─────────────────────────────────────────
-    for epoch in range(epochs):
-        train_loss = train_one_epoch(
-            model, train_loader, optimizer, criterion, device, augment
-        )
-        val_loss, preds, labels = validate(model, val_loader, criterion, device)
-        cmap = padded_cmap(labels, preds)
-        scheduler.step()
-
-        print(
-            f"Epoch {epoch+1:02d}/{epochs} | "
-            f"train_loss: {train_loss:.4f} | "
-            f"val_loss: {val_loss:.4f} | "
-            f"cMAP: {cmap:.4f}"
+class BirdMLP(nn.Module):
+    """Multi-Layer Perceptron for 1D Perch embeddings."""
+    def __init__(self, input_dim=1280, num_classes=N_CLASSES):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(256, num_classes),
         )
 
-        if cmap > best_cmap:
-            best_cmap = cmap
-            torch.save(model.state_dict(), save_dir / f"best_fold{fold}.pth")
-            print(f"  ↳ saved  (cMAP={cmap:.4f})")
-
-    print(f"\nFold {fold} done — best cMAP: {best_cmap:.4f}")
-    return best_cmap
+    def forward(self, x):
+        return self.net(x)
 
 
-# ── Smoke test ────────────────────────────────────────────────
+def train_pytorch(mixup_prob: float = 0.5, mixup_alpha: float = 0.4):
+    print("Loading embeddings...")
+    try:
+        X = np.load(EMB_DIR / "X_embeddings.npy")
+        y_labels_str = np.load(EMB_DIR / "y_labels.npy")
+    except FileNotFoundError:
+        print("Embeddings not found. Run extract_feature.py first.")
+        return
+
+    label2idx = load_label2idx()
+    y_bin = labels_to_binary_matrix(y_labels_str, label2idx)
+
+    y_primary_idx = np.array([label2idx.get(str(l), 0) for l in y_labels_str])
+
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    fold_scores = []
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Training on: {device}")
+
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X, y_primary_idx)):
+        print(f"\n{'='*50}\nFOLD {fold}\n{'='*50}")
+
+        X_train, X_val = X[train_idx], X[val_idx]
+        y_train_bin, y_val_bin = y_bin[train_idx], y_bin[val_idx]
+        y_train_prim = y_primary_idx[train_idx]
+
+        train_dataset = PerchDataset(X_train, y_train_bin)
+        val_dataset   = PerchDataset(X_val, y_val_bin)
+
+        # WeightedRandomSampler (already in your original code)
+        class_counts = np.bincount(y_train_prim, minlength=N_CLASSES)
+        class_weights = np.zeros(N_CLASSES, dtype=np.float32)
+        valid_classes = class_counts > 0
+        class_weights[valid_classes] = 1.0 / class_counts[valid_classes]
+        sample_weights = class_weights[y_train_prim]
+        sampler = WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
+
+        train_loader = DataLoader(train_dataset, batch_size=64, sampler=sampler)
+        val_loader   = DataLoader(val_dataset, batch_size=128, shuffle=False)
+
+        model = BirdMLP().to(device)
+        criterion = nn.BCEWithLogitsLoss()
+        optimizer = optim.Adam(model.parameters(), lr=1e-3)
+
+        best_cmap = 0.0
+        epochs = 15
+
+        for epoch in range(epochs):
+            model.train()
+            train_loss = 0.0
+
+            for inputs, targets in train_loader:
+                inputs, targets = inputs.to(device), targets.to(device)
+
+                # ====================== MIXUP ======================
+                if np.random.rand() < mixup_prob:                    # ← 50% chance
+                    # Randomly pick another sample from the same batch
+                    idx2 = torch.randperm(inputs.size(0)).to(device)
+                    inputs2, targets2 = inputs[idx2], targets[idx2]
+
+                    # Apply mixup (uses your augment.py function)
+                    inputs, targets = mixup(inputs, targets, inputs2, targets2, alpha=mixup_alpha)
+                # ===================================================
+
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
+
+            # === Evaluation (unchanged) ===
+            model.eval()
+            val_preds = []
+            with torch.no_grad():
+                for inputs, _ in val_loader:
+                    inputs = inputs.to(device)
+                    outputs = torch.sigmoid(model(inputs))
+                    val_preds.append(outputs.cpu().numpy())
+
+            val_preds = np.vstack(val_preds)
+            cmap = padded_cmap(y_val_bin, val_preds)
+
+            if cmap > best_cmap:
+                best_cmap = cmap
+                torch.save(model.state_dict(), SAVE_DIR / f"pt_fold{fold}.pth")
+
+            print(f"Epoch {epoch+1:02d} | Train Loss: {train_loss/len(train_loader):.4f} | Val cMAP: {cmap:.4f}")
+
+        print(f"Fold {fold} Best OOF cMAP: {best_cmap:.4f}")
+        fold_scores.append(best_cmap)
+
+    print(f"\nMean OOF cMAP: {np.mean(fold_scores):.4f}")
+
+    with open(SAVE_DIR / "label2idx.json", "w") as f:
+        json.dump(label2idx, f, indent=2)
+
+    return fold_scores
+
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--smoke", action="store_true")
-    parser.add_argument("--fold", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=20)
-    args = parser.parse_args()
-
-    if args.smoke:
-        print("Running smoke test on CPU...")
-        train_fold(fold=0, epochs=1, batch_size=4, max_batches=2, device="cpu")
-        print("Smoke test passed ✓")
-    else:
-        train_fold(fold=args.fold, epochs=args.epochs)
+    train_pytorch(mixup_prob=0.5, mixup_alpha=0.4)   # ← you can change these values here
