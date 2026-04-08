@@ -108,10 +108,13 @@ class BirdDataset(Dataset):
         # ── load audio ────────────────────────────────────────
         y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
 
-        # === NEW: Background noise augmentation (Data Scientist part) ===
-        from augment import add_background_noise
+        # === Background noise (we added last time) ===
+        from augment import add_background_noise, gain_and_loudness_norm
 
         y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
+
+        # === NEW: Gain + Loudness Normalization ===
+        y = gain_and_loudness_norm(y, prob=0.7)
         # ===============================================================
 
         # ── crop or pad to exactly 5 seconds ──────────────────
