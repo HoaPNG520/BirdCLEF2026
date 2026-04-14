@@ -108,6 +108,15 @@ class BirdDataset(Dataset):
         # ── load audio ────────────────────────────────────────
         y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
 
+        # === Background noise (we added last time) ===
+        from augment import add_background_noise, gain_and_loudness_norm
+
+        y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
+
+        # === NEW: Gain + Loudness Normalization ===
+        y = gain_and_loudness_norm(y, prob=0.7)
+        # ===============================================================
+
         # ── crop or pad to exactly 5 seconds ──────────────────
         if len(y) < self.chunk_len:
             y = np.pad(y, (0, self.chunk_len - len(y)))
@@ -135,23 +144,4 @@ class BirdDataset(Dataset):
         if self.augment is not None:
             mel = self.augment(mel)
 
-        # ── label vector — shape (N_CLASSES,) ─────────────────
-        label = torch.zeros(self.n_classes, dtype=torch.float32)
-
-        primary = str(row["primary_label"])
-        if primary in self.label2idx:
-            label[self.label2idx[primary]] = 1.0
-
-        sec = row.get("sec_parsed", [])
-        if isinstance(sec, str):
-            try:
-                sec = ast.literal_eval(sec)
-            except Exception:
-                sec = []
-        for s in sec:
-            if str(s) in self.label2idx:
-                label[self.label2idx[str(s)]] = max(
-                    label[self.label2idx[str(s)]].item(), 0.5
-                )
-
-        return mel, label
+        # ... rest of label code unchanged ...

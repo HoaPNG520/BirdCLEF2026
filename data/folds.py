@@ -1,9 +1,10 @@
+import pandas as pd
+import numpy as np
 from sklearn.model_selection import StratifiedKFold
-
 
 def make_folds(df, n_folds=5, seed=42):
     """
-    Add a 'fold' column (0-4) to df using stratified split on primary_label.
+    Add a 'fold' column (0–4) to df using stratified split on primary_label.
     Both team members must use this exact function — never split manually.
     """
     df = df.copy()
