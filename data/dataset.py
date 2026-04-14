@@ -7,8 +7,7 @@ import random
 from torch.utils.data import Dataset
 from pathlib import Path
 from data.augment import add_background_noise, gain_and_loudness_norm
-from configs.config import AUDIO_DIR, SAMPLE_RATE, DURATION, N_FFT, HOP_LENGTH, N_MELS
-
+from configs.config import AUDIO_DIR, SAMPLE_RATE, DURATION, N_FFT, HOP_LENGTH, N_MELS, N_CLASSES
 # ── Artifact loading ──────────────────────────────────────────
 # These functions load the files saved by the EDA notebook.
 # The ML team should never need to rebuild these from scratch.
