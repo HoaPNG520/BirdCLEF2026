@@ -109,8 +109,6 @@ class BirdDataset(Dataset):
         y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
 
         # === Background noise (we added last time) ===
-        from augment import add_background_noise, gain_and_loudness_norm
-
         y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
 
         # === NEW: Gain + Loudness Normalization ===
