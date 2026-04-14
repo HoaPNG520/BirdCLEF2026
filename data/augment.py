@@ -14,8 +14,15 @@ def get_spec_augment(freq_mask=20, time_mask=40):
 
 
 def mixup(mel1, label1, mel2, label2, alpha=0.4):
-    """Blend two spectrograms and their labels."""
-    lam = np.random.beta(alpha, alpha)
+    """
+    PyTorch-native Mixup. Blends two spectrogram tensors and their labels.
+    Both inputs must be PyTorch tensors on the same device.
+    """
+    if alpha > 0:
+        lam = torch.distributions.Beta(alpha, alpha).sample().item()
+    else:
+        lam = 1.0
+
     mel = lam * mel1 + (1 - lam) * mel2
     label = lam * label1 + (1 - lam) * label2
     return mel, label
