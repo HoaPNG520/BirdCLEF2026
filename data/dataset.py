@@ -3,11 +3,11 @@ import ast
 import numpy as np
 import librosa
 import torch
+import random
 from torch.utils.data import Dataset
 from pathlib import Path
 from data.augment import add_background_noise, gain_and_loudness_norm
 from configs.config import AUDIO_DIR, SAMPLE_RATE, DURATION, N_FFT, HOP_LENGTH, N_MELS
-
 
 # ── Artifact loading ──────────────────────────────────────────
 # These functions load the files saved by the EDA notebook.
@@ -101,21 +101,21 @@ class BirdDataset(Dataset):
     def __len__(self):
         return len(self.df)
 
-    def __getitem__(self, idx):
+
+
+def __getitem__(self, idx):
+    try:
         row = self.df.iloc[idx]
         fpath = AUDIO_DIR / row["filename"]
 
-        # ── load audio ────────────────────────────────────────
+        # 1. Load audio
         y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
 
-        # === Background noise (we added last time) ===
+        # 2. Raw audio augs (Numpy)
         y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
-
-        # === NEW: Gain + Loudness Normalization ===
         y = gain_and_loudness_norm(y, prob=0.7)
-        # ===============================================================
 
-        # ── crop or pad to exactly 5 seconds ──────────────────
+        # 3. Time alignment (5 seconds)
         if len(y) < self.chunk_len:
             y = np.pad(y, (0, self.chunk_len - len(y)))
         else:
@@ -125,21 +125,25 @@ class BirdDataset(Dataset):
                 start = (len(y) - self.chunk_len) // 2
             y = y[start : start + self.chunk_len]
 
-        # ── mel spectrogram → (1, N_MELS, T) ─────────────────
+        # 4. Mel Spectrogram
         mel = librosa.feature.melspectrogram(
-            y=y,
-            sr=SAMPLE_RATE,
-            n_fft=N_FFT,
-            hop_length=HOP_LENGTH,
-            n_mels=N_MELS,
-            fmin=20,
-            fmax=16000,
+            y=y, sr=SAMPLE_RATE, n_fft=N_FFT, 
+            hop_length=HOP_LENGTH, n_mels=N_MELS, fmin=20, fmax=16000
         )
         mel = librosa.power_to_db(mel, ref=np.max)
-        mel = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
+        mel_tensor = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
 
-        # ── augmentation ──────────────────────────────────────
+        # 5. Tensor augs
         if self.augment is not None:
-            mel = self.augment(mel)
+            mel_tensor = self.augment(mel_tensor)
 
-        # ... rest of label code unchanged ...
+        # 6. Labels
+        label = self.get_labels(row) # Use your existing label logic here
+
+        # THE FIX: Always return the data!
+        return mel_tensor, label
+
+    except Exception as e:
+        # THE INSURANCE: If anything goes wrong, just try another file
+        print(f"Skipping bad file {fpath}: {e}")
+        return self.__getitem__(random.randint(0, len(self.df) - 1))
