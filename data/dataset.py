@@ -5,7 +5,7 @@ import librosa
 import torch
 from torch.utils.data import Dataset
 from pathlib import Path
-
+from data.augment import add_background_noise, gain_and_loudness_norm
 from configs.config import AUDIO_DIR, SAMPLE_RATE, DURATION, N_FFT, HOP_LENGTH, N_MELS
 
 
