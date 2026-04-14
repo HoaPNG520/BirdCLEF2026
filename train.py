@@ -16,13 +16,30 @@ from data.augment import get_spec_augment, mixup
 from models.efficientnet import EfficientNetClassifier
 
 def padded_cmap(y_true_bin, y_pred_prob, padding=5):
-    """BirdCLEF padded-cMAP metric."""
+    """
+    Padded competition metric.
+    Binarizes soft labels (0.5 -> 1) for Scikit-learn compatibility.
+    """
+    from sklearn.metrics import average_precision_score
+    import numpy as np
+
     scores = []
     for i in range(y_true_bin.shape[1]):
-        yt = np.concatenate([y_true_bin[:, i], np.zeros(padding)])
-        yp = np.concatenate([y_pred_prob[:, i], np.zeros(padding)])
-        if yt.sum() > 0:
-            scores.append(average_precision_score(yt, yp))
+        # 1. Extract the column for this species
+        yt = y_true_bin[:, i]
+        yp = y_pred_prob[:, i]
+
+        # 2. Binarize ground truth: Anything > 0 (0.5 or 1.0) becomes 1
+        yt_binary = (yt > 0).astype(int)
+
+        # 3. Apply the competition padding
+        yt_padded = np.concatenate([yt_binary, np.zeros(padding)])
+        yp_padded = np.concatenate([yp, np.zeros(padding)])
+
+        # 4. Calculate AP if there is at least one positive instance
+        if yt_padded.sum() > 0:
+            scores.append(average_precision_score(yt_padded, yp_padded))
+            
     return float(np.mean(scores)) if scores else 0.0
 
 def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODELS):
