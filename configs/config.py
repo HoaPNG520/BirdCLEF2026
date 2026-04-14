@@ -8,7 +8,7 @@ TRAIN_CSV            = BASE_DIR_COMPETITION / "train.csv"
 TAXONOMY             = BASE_DIR_COMPETITION / "taxonomy.csv"
 
 # EDA artifacts — produced by data science team EDA notebook
-BASE_DIR_ARTIFACT    = Path("/kaggle/input/birdclef-eda-artifacts")
+BASE_DIR_ARTIFACT    = Path("/kaggle/input/datasets/haphngngcgia/birdclef-eda-artifacts")
 
 # Model outputs
 BASE_DIR_MODELS      = Path("/kaggle/working/birdclef-models")
