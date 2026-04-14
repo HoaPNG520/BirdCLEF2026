@@ -20,6 +20,23 @@ from configs.config import (
 )
 
 
+def load_label2idx(path=None):
+    import json
+    from configs.config import BASE_DIR_ARTIFACT
+
+    path = path or BASE_DIR_ARTIFACT / "label2idx.json"
+    with open(path) as f:
+        return json.load(f)
+
+
+def load_df_clean(path=None):
+    import pandas as pd
+    from configs.config import BASE_DIR_ARTIFACT
+
+    path = path or BASE_DIR_ARTIFACT / "df_clean.csv"
+    return pd.read_csv(path)
+
+
 class BirdDataset(Dataset):
     def __init__(self, df, label2idx, audio_dir=AUDIO_DIR, augment=None, mode="train"):
         self.df = df
@@ -64,51 +81,51 @@ class BirdDataset(Dataset):
         return torch.tensor(labels, dtype=torch.float32)
 
     def __getitem__(self, idx):
-        try:
-            row = self.df.iloc[idx]
-            fpath = self.audio_dir / row["filename"]
+        # try:
+        row = self.df.iloc[idx]
+        fpath = self.audio_dir / row["filename"]
 
-            y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
+        y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
 
-            # Audio-level augmentations
+        # Audio-level augmentations
+        if self.mode == "train":
+            from data.augment import add_background_noise, gain_and_loudness_norm
+
+            y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
+            y = gain_and_loudness_norm(y, prob=0.7)
+
+        # 5-second windowing
+        if len(y) < self.chunk_len:
+            y = np.pad(y, (0, self.chunk_len - len(y)))
+        else:
             if self.mode == "train":
-                from data.augment import add_background_noise, gain_and_loudness_norm
-
-                y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
-                y = gain_and_loudness_norm(y, prob=0.7)
-
-            # 5-second windowing
-            if len(y) < self.chunk_len:
-                y = np.pad(y, (0, self.chunk_len - len(y)))
+                start = np.random.randint(0, len(y) - self.chunk_len + 1)
             else:
-                if self.mode == "train":
-                    start = np.random.randint(0, len(y) - self.chunk_len + 1)
-                else:
-                    start = (len(y) - self.chunk_len) // 2
-                y = y[start : start + self.chunk_len]
+                start = (len(y) - self.chunk_len) // 2
+            y = y[start : start + self.chunk_len]
 
-            # Mel Spectrogram
-            mel = librosa.feature.melspectrogram(
-                y=y,
-                sr=SAMPLE_RATE,
-                n_fft=N_FFT,
-                hop_length=HOP_LENGTH,
-                n_mels=N_MELS,
-                fmin=20,
-                fmax=16000,
-            )
-            mel = librosa.power_to_db(mel, ref=np.max)
-            mel_tensor = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
+        # Mel Spectrogram
+        mel = librosa.feature.melspectrogram(
+            y=y,
+            sr=SAMPLE_RATE,
+            n_fft=N_FFT,
+            hop_length=HOP_LENGTH,
+            n_mels=N_MELS,
+            fmin=20,
+            fmax=16000,
+        )
+        mel = librosa.power_to_db(mel, ref=np.max)
+        mel_tensor = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
 
-            if self.augment is not None:
-                mel_tensor = self.augment(mel_tensor)
+        if self.augment is not None:
+            mel_tensor = self.augment(mel_tensor)
 
-            # Get labels using the new method
-            label_tensor = self.get_labels(row)
+        # Get labels using the new method
+        label_tensor = self.get_labels(row)
 
-            return mel_tensor, label_tensor
+        return mel_tensor, label_tensor
 
-        except Exception as e:
-            # Recursive recovery: pick a different random file
-            new_idx = random.randint(0, len(self.df) - 1)
-            return self.__getitem__(new_idx)
+    # except Exception as e:
+    #     # Recursive recovery: pick a different random file
+    #     new_idx = random.randint(0, len(self.df) - 1)
+    #     return self.__getitem__(new_idx)

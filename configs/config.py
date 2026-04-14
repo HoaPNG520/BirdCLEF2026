@@ -25,7 +25,7 @@ N_MELS      = 128
 # Never use len(train_species) or LabelEncoder.classes_ here
 N_CLASSES   = 234
 BATCH_SIZE  = 32
-NUM_WORKERS = 2
+NUM_WORKERS = 0
 
 # ── Perch TF Hub ───────────────────────────────────────────────
 PERCH_URL   = "https://tfhub.dev/google/bird-vocalization-classifier/4"
