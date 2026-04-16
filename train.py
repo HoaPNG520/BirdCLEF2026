@@ -92,23 +92,39 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
     best_cmap = 0.0
 
     # 4. Training Loop
+    from configs.config import ACCUMULATION_STEPS
+
+    scaler = torch.amp.GradScaler()
+
     for epoch in range(epochs):
         model.train()
         train_loss = 0.0
+        optimizer.zero_grad()
 
-        for mels, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
+        for i, (mels, labels) in enumerate(
+            tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")
+        ):
             mels, labels = mels.to(device), labels.to(device)
 
             if np.random.rand() < mixup_prob:
                 indices = torch.randperm(mels.size(0)).to(device)
                 mels, labels = mixup(mels, labels, mels[indices], labels[indices])
 
-            optimizer.zero_grad()
-            outputs = model(mels)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
+            # 1. Forward pass with AMP
+            with torch.amp.autocast(device_type="cuda"):
+                outputs = model(mels)
+                loss = criterion(outputs, labels) / ACCUMULATION_STEPS
+
+            # 2. Backward pass
+            scaler.scale(loss).backward()
+
+            # 3. Only step every X steps (simulates 1024 batch)
+            if (i + 1) % ACCUMULATION_STEPS == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+
+            train_loss += loss.item() * ACCUMULATION_STEPS
 
         scheduler.step()
 
