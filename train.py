@@ -15,6 +15,7 @@ from data.folds import make_folds, get_fold
 from data.augment import get_spec_augment, mixup
 from models.efficientnet import EfficientNetClassifier
 
+
 def padded_cmap(y_true_bin, y_pred_prob, padding=5):
     """
     Padded competition metric.
@@ -39,8 +40,9 @@ def padded_cmap(y_true_bin, y_pred_prob, padding=5):
         # 4. Calculate AP if there is at least one positive instance
         if yt_padded.sum() > 0:
             scores.append(average_precision_score(yt_padded, yp_padded))
-            
+
     return float(np.mean(scores)) if scores else 0.0
+
 
 def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODELS):
     save_dir = Path(save_dir)
@@ -51,17 +53,35 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
     # 1. Load Data
     label2idx = load_label2idx()
     df = load_df_clean()
-    if 'fold' not in df.columns:
+    if "fold" not in df.columns:
         df = make_folds(df, n_folds=5)
-    
+
     train_df, val_df = get_fold(df, fold)
 
     # 2. Datasets & Loaders
-    train_dataset = BirdDataset(train_df, label2idx, augment=get_spec_augment(), mode="train")
-    val_dataset   = BirdDataset(val_df, label2idx, augment=None, mode="val")
+    train_dataset = BirdDataset(
+        train_df, label2idx, augment=get_spec_augment(), mode="train"
+    )
+    val_dataset = BirdDataset(val_df, label2idx, augment=None, mode="val")
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, drop_last=True)
-    val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        num_workers=NUM_WORKERS,
+        drop_last=True,
+        persistent_workers=True,  # Keeps workers alive between epochs
+        pin_memory=True,  # Speeds up tensor transfer to GPU
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+        persistent_workers=True,  # Recommended when num_workers > 0
+        pin_memory=True,
+    )
 
     # 3. Model & Optimiser
     model = EfficientNetClassifier(n_classes=N_CLASSES).to(device)
@@ -95,7 +115,7 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
         # 5. Validation Loop
         model.eval()
         val_preds, val_targets = [], []
-        
+
         with torch.no_grad():
             for mels, labels in val_loader:
                 mels = mels.to(device)
@@ -107,7 +127,9 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
         val_targets = np.vstack(val_targets)
         cmap = padded_cmap(val_targets, val_preds)
 
-        print(f"Epoch {epoch+1:02d} | Loss: {train_loss/len(train_loader):.4f} | Val cMAP: {cmap:.4f}")
+        print(
+            f"Epoch {epoch+1:02d} | Loss: {train_loss/len(train_loader):.4f} | Val cMAP: {cmap:.4f}"
+        )
 
         if cmap > best_cmap:
             best_cmap = cmap
@@ -116,6 +138,7 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
 
     with open(save_dir / "label2idx.json", "w") as f:
         json.dump(label2idx, f, indent=2)
+
 
 if __name__ == "__main__":
     train_fold(fold=0)

@@ -8,7 +8,7 @@ TRAIN_CSV            = BASE_DIR_COMPETITION / "train.csv"
 TAXONOMY             = BASE_DIR_COMPETITION / "taxonomy.csv"
 
 # EDA artifacts — produced by data science team EDA notebook
-BASE_DIR_ARTIFACT    = Path("/kaggle/input/birdclef-eda-artifacts")
+BASE_DIR_ARTIFACT    = Path("/kaggle/input/datasets/haphngngcgia/birdclef-eda-artifacts")
 
 # Model outputs
 BASE_DIR_MODELS      = Path("/kaggle/working/birdclef-models")
@@ -24,7 +24,7 @@ N_MELS      = 128
 # CRITICAL: always 234 — covers ALL taxonomy species including zero-shot
 # Never use len(train_species) or LabelEncoder.classes_ here
 N_CLASSES   = 234
-BATCH_SIZE  = 32
+BATCH_SIZE  = 1024
 NUM_WORKERS = 2
 
 # ── Perch TF Hub ───────────────────────────────────────────────

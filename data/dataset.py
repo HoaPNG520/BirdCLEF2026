@@ -6,70 +6,34 @@ import torch
 import random
 from torch.utils.data import Dataset
 from pathlib import Path
-from data.augment import add_background_noise, gain_and_loudness_norm
-from configs.config import AUDIO_DIR, SAMPLE_RATE, DURATION, N_FFT, HOP_LENGTH, N_MELS, N_CLASSES
-# ── Artifact loading ──────────────────────────────────────────
-# These functions load the files saved by the EDA notebook.
-# The ML team should never need to rebuild these from scratch.
 
-ARTIFACT_DIR = Path("/kaggle/input/datasets/haphngngcgia/birdclef-eda-artifacts")
+# Ensure these are imported from your config
+from configs.config import (
+    AUDIO_DIR,
+    SAMPLE_RATE,
+    DURATION,
+    N_FFT,
+    HOP_LENGTH,
+    N_MELS,
+    N_CLASSES,
+)
 
 
 def load_label2idx(path=None):
-    """
-    Load species → index mapping saved by EDA notebook.
-    Always 234 entries — includes zero-shot species.
-    """
-    path = path or ARTIFACT_DIR / "label2idx.json"
+    import json
+    from configs.config import BASE_DIR_ARTIFACT
+
+    path = path or BASE_DIR_ARTIFACT / "label2idx.json"
     with open(path) as f:
-        label2idx = json.load(f)
-    print(f"Loaded label2idx: {len(label2idx)} species")
-    assert len(label2idx) == 234, f"Expected 234 species, got {len(label2idx)}"
-    return label2idx
+        return json.load(f)
 
 
 def load_df_clean(path=None):
-    """
-    Load the filtered training DataFrame saved by EDA notebook.
-    Already filtered: duration >= 1s, iNat kept, XC rating >= 3.
-    Already has sample_weight, sec_parsed, n_secondary columns.
-    """
     import pandas as pd
+    from configs.config import BASE_DIR_ARTIFACT
 
-    path = path or ARTIFACT_DIR / "df_clean.csv"
-    df = pd.read_csv(path)
-    df["primary_label"] = df["primary_label"].astype(str)
-
-    # re-parse sec_parsed from string back to list
-    if "secondary_labels" in df.columns:
-        df["sec_parsed"] = df["secondary_labels"].apply(
-            lambda x: (
-                ast.literal_eval(x)
-                if isinstance(x, str) and x not in ["[]", ""]
-                else []
-            )
-        )
-
-    print(
-        f"Loaded df_clean: {len(df):,} clips, "
-        f"{df['primary_label'].nunique()} species"
-    )
-    return df
-
-
-def load_zero_shot(path=None):
-    """
-    Load list of zero-shot species labels (no training audio).
-    These are insect sonotypes + 3 Amphibia species.
-    """
-    path = path or ARTIFACT_DIR / "zero_shot_labels.json"
-    with open(path) as f:
-        zero_shot = json.load(f)
-    print(f"Loaded zero_shot_labels: {len(zero_shot)} species")
-    return zero_shot
-
-
-# ── Dataset class ─────────────────────────────────────────────
+    path = path or BASE_DIR_ARTIFACT / "df_clean.csv"
+    return pd.read_csv(path)
 
 
 class BirdDataset(Dataset):
@@ -179,3 +143,53 @@ class BirdDataset(Dataset):
                         labels[self.label2idx[sl]] = 0.5
 
         return torch.tensor(labels, dtype=torch.float32)
+
+    def __getitem__(self, idx):
+        # try:
+        row = self.df.iloc[idx]
+        fpath = self.audio_dir / row["filename"]
+
+        y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
+
+        # Audio-level augmentations
+        if self.mode == "train":
+            from data.augment import add_background_noise, gain_and_loudness_norm
+
+            y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
+            y = gain_and_loudness_norm(y, prob=0.7)
+
+        # 5-second windowing
+        if len(y) < self.chunk_len:
+            y = np.pad(y, (0, self.chunk_len - len(y)))
+        else:
+            if self.mode == "train":
+                start = np.random.randint(0, len(y) - self.chunk_len + 1)
+            else:
+                start = (len(y) - self.chunk_len) // 2
+            y = y[start : start + self.chunk_len]
+
+        # Mel Spectrogram
+        mel = librosa.feature.melspectrogram(
+            y=y,
+            sr=SAMPLE_RATE,
+            n_fft=N_FFT,
+            hop_length=HOP_LENGTH,
+            n_mels=N_MELS,
+            fmin=20,
+            fmax=16000,
+        )
+        mel = librosa.power_to_db(mel, ref=np.max)
+        mel_tensor = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
+
+        if self.augment is not None:
+            mel_tensor = self.augment(mel_tensor)
+
+        # Get labels using the new method
+        label_tensor = self.get_labels(row)
+
+        return mel_tensor, label_tensor
+
+    # except Exception as e:
+    #     # Recursive recovery: pick a different random file
+    #     new_idx = random.randint(0, len(self.df) - 1)
+    #     return self.__getitem__(new_idx)
