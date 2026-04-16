@@ -24,7 +24,7 @@ N_MELS      = 128
 # CRITICAL: always 234 — covers ALL taxonomy species including zero-shot
 # Never use len(train_species) or LabelEncoder.classes_ here
 N_CLASSES   = 234
-BATCH_SIZE  = 64
+BATCH_SIZE  = 1024
 NUM_WORKERS = 2
 
 # ── Perch TF Hub ───────────────────────────────────────────────
