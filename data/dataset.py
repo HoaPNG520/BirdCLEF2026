@@ -81,51 +81,52 @@ class BirdDataset(Dataset):
         return torch.tensor(labels, dtype=torch.float32)
 
     def __getitem__(self, idx):
-        # try:
-        row = self.df.iloc[idx]
-        fpath = self.audio_dir / row["filename"]
+        try:
+            row = self.df.iloc[idx]
+            fpath = AUDIO_DIR / row["filename"]
 
-        y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
+            # 1. Load audio
+            y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
 
-        # Audio-level augmentations
-        if self.mode == "train":
-            from data.augment import add_background_noise, gain_and_loudness_norm
-
-            y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
-            y = gain_and_loudness_norm(y, prob=0.7)
-
-        # 5-second windowing
-        if len(y) < self.chunk_len:
-            y = np.pad(y, (0, self.chunk_len - len(y)))
-        else:
+            # 2. Audio-level augmentations
             if self.mode == "train":
-                start = np.random.randint(0, len(y) - self.chunk_len + 1)
+                from data.augment import add_background_noise, gain_and_loudness_norm
+
+                y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
+                y = gain_and_loudness_norm(y, prob=0.7)
+
+            # 3. 5-second alignment
+            if len(y) < self.chunk_len:
+                y = np.pad(y, (0, self.chunk_len - len(y)))
             else:
-                start = (len(y) - self.chunk_len) // 2
-            y = y[start : start + self.chunk_len]
+                if self.mode == "train":
+                    start = np.random.randint(0, len(y) - self.chunk_len + 1)
+                else:
+                    start = (len(y) - self.chunk_len) // 2
+                y = y[start : start + self.chunk_len]
 
-        # Mel Spectrogram
-        mel = librosa.feature.melspectrogram(
-            y=y,
-            sr=SAMPLE_RATE,
-            n_fft=N_FFT,
-            hop_length=HOP_LENGTH,
-            n_mels=N_MELS,
-            fmin=20,
-            fmax=16000,
-        )
-        mel = librosa.power_to_db(mel, ref=np.max)
-        mel_tensor = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
+            # 4. Mel Spectrogram
+            mel = librosa.feature.melspectrogram(
+                y=y,
+                sr=SAMPLE_RATE,
+                n_fft=N_FFT,
+                hop_length=HOP_LENGTH,
+                n_mels=N_MELS,
+                fmin=20,
+                fmax=16000,
+            )
+            mel = librosa.power_to_db(mel, ref=np.max)
+            mel_tensor = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
 
-        if self.augment is not None:
-            mel_tensor = self.augment(mel_tensor)
+            if self.augment is not None:
+                mel_tensor = self.augment(mel_tensor)
 
-        # Get labels using the new method
-        label_tensor = self.get_labels(row)
+            # 5. Get labels
+            label_tensor = self.get_labels(row)
 
-        return mel_tensor, label_tensor
+            return mel_tensor, label_tensor
 
-    # except Exception as e:
-    #     # Recursive recovery: pick a different random file
-    #     new_idx = random.randint(0, len(self.df) - 1)
-    #     return self.__getitem__(new_idx)
+        except Exception as e:
+            # Recursive recovery: if a file is bad, grab another one
+            new_idx = random.randint(0, len(self.df) - 1)
+            return self.__getitem__(new_idx)

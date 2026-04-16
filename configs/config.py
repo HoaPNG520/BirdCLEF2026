@@ -24,8 +24,9 @@ N_MELS      = 128
 # CRITICAL: always 234 — covers ALL taxonomy species including zero-shot
 # Never use len(train_species) or LabelEncoder.classes_ here
 N_CLASSES   = 234
-BATCH_SIZE  = 1024
-NUM_WORKERS = 2
+BATCH_SIZE  = 16      # Reduced from 1024 to fit in 16GB VRAM
+NUM_WORKERS = 2       # Re-enabled for speed (with persistent_workers)
+ACCUMULATION_STEPS = 64 # 16 * 64 = 1024 effective batch size
 
 # ── Perch TF Hub ───────────────────────────────────────────────
 PERCH_URL   = "https://tfhub.dev/google/bird-vocalization-classifier/4"
