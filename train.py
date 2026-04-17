@@ -1,5 +1,6 @@
 import os
 import json
+from pyexpat import model
 import numpy as np
 import torch
 import torch.nn as nn
@@ -86,7 +87,7 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
     # 3. Model & Optimiser
     model = EfficientNetClassifier(n_classes=N_CLASSES).to(device)
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-4) # Slightly higher LR
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     best_cmap = 0.0

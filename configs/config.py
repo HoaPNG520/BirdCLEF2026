@@ -26,7 +26,7 @@ N_MELS      = 128
 N_CLASSES   = 234
 BATCH_SIZE  = 16      # Reduced from 1024 to fit in 16GB VRAM
 NUM_WORKERS = 2       # Re-enabled for speed (with persistent_workers)
-ACCUMULATION_STEPS = 64 # 16 * 64 = 1024 effective batch size
+ACCUMULATION_STEPS = 8
 
 # ── Perch TF Hub ───────────────────────────────────────────────
 PERCH_URL   = "https://tfhub.dev/google/bird-vocalization-classifier/4"
