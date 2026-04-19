@@ -87,7 +87,9 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
     # 3. Model & Optimiser
     model = EfficientNetClassifier(n_classes=N_CLASSES).to(device)
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-4) # Slightly higher LR
+    optimizer = optim.AdamW(
+        model.parameters(), lr=2e-3, weight_decay=1e-4
+    )  # Slightly higher LR
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     best_cmap = 0.0
@@ -148,10 +150,17 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
             f"Epoch {epoch+1:02d} | Loss: {train_loss/len(train_loader):.4f} | Val cMAP: {cmap:.4f}"
         )
 
+        # Stop if not imvroving for 3 epochs to save GPU quota
         if cmap > best_cmap:
             best_cmap = cmap
-            torch.save(model.state_dict(), save_dir / f"effnet_fold{fold}.pth")
-            print(f"--> Saved new best model (cMAP: {best_cmap:.4f})")
+            patience_counter = 0  # Reset
+            torch.save(model.state_dict(), save_dir / f"effnet_fold0_best.pth")
+        else:
+            patience_counter += 1
+
+        if patience_counter >= 3:
+            print("Early stopping triggered to save GPU quota!")
+            break
 
     with open(save_dir / "label2idx.json", "w") as f:
         json.dump(label2idx, f, indent=2)
