@@ -28,5 +28,8 @@ BATCH_SIZE  = 16      # Reduced from 1024 to fit in 16GB VRAM
 NUM_WORKERS = 2       # Re-enabled for speed (with persistent_workers)
 ACCUMULATION_STEPS = 8
 
+MODEL_TYPE = "beats" # Options: "effnet" or "beats"
+TARGET_SR  = 16000   # BEATs specifically requires 16kHz
+
 # ── Perch TF Hub ───────────────────────────────────────────────
 PERCH_URL   = "https://tfhub.dev/google/bird-vocalization-classifier/4"

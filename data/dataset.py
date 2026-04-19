@@ -6,6 +6,7 @@ import numpy as np
 import librosa
 import torch
 from torch.utils.data import Dataset
+import torchaudio.transforms as T
 from pathlib import Path
 
 # Ensure these are imported from your config
@@ -38,95 +39,56 @@ def load_df_clean(path=None):
 
 
 class BirdDataset(Dataset):
-    def __init__(self, df, label2idx, audio_dir=AUDIO_DIR, augment=None, mode="train"):
-        self.df = df
+    def __init__(self, df, label2idx, augment=None, mode="train", model_type="effnet"):
+        self.df = df.reset_index(drop=True)
         self.label2idx = label2idx
-        self.audio_dir = audio_dir
-        self.chunk_len = SAMPLE_RATE * DURATION
         self.augment = augment
         self.mode = mode
+        self.model_type = model_type  # New: track which model we're feeding
+        self.chunk_len_32k = SAMPLE_RATE * DURATION
 
-    def __len__(self):
-        return len(self.df)
-
-    # ── NEW: The missing label encoding method ───────────────────
-    def get_labels(self, row):
-        """
-        Converts primary and secondary labels into a multi-label vector.
-        Primary: 1.0 weight | Secondary: 0.5 weight
-        """
-        labels = np.zeros(N_CLASSES, dtype=np.float32)
-
-        # 1. Primary label
-        primary = row["primary_label"]
-        if primary in self.label2idx:
-            labels[self.label2idx[primary]] = 1.0
-
-        # 2. Secondary labels
-        if "secondary_labels" in row:
-            sec_labels = row["secondary_labels"]
-            # Parse string representation of list: "['bird1', 'bird2']" -> ['bird1', 'bird2']
-            if isinstance(sec_labels, str) and sec_labels.startswith("["):
-                try:
-                    sec_labels = ast.literal_eval(sec_labels)
-                except:
-                    sec_labels = []
-
-            if isinstance(sec_labels, list):
-                for sl in sec_labels:
-                    if sl in self.label2idx:
-                        # Soft labeling: secondary birds get half weight
-                        labels[self.label2idx[sl]] = 0.5
-
-        return torch.tensor(labels, dtype=torch.float32)
+        # BEATs resampler (32kHz -> 16kHz)
+        self.resampler = T.Resample(32000, 16000)
 
     def __getitem__(self, idx):
         try:
             row = self.df.iloc[idx]
             fpath = AUDIO_DIR / row["filename"]
-
-            # 1. Load audio
             y, _ = librosa.load(fpath, sr=SAMPLE_RATE, mono=True)
 
-            # 2. Audio-level augmentations
-            if self.mode == "train":
-                from data.augment import add_background_noise, gain_and_loudness_norm
-
-                y = add_background_noise(y, sr=SAMPLE_RATE, prob=0.6)
-                y = gain_and_loudness_norm(y, prob=0.7)
-
-            # 3. 5-second alignment
-            if len(y) < self.chunk_len:
-                y = np.pad(y, (0, self.chunk_len - len(y)))
+            # 1. Basic 5s alignment at 32kHz
+            if len(y) < self.chunk_len_32k:
+                y = np.pad(y, (0, self.chunk_len_32k - len(y)))
             else:
-                if self.mode == "train":
-                    start = np.random.randint(0, len(y) - self.chunk_len + 1)
-                else:
-                    start = (len(y) - self.chunk_len) // 2
-                y = y[start : start + self.chunk_len]
+                start = (
+                    np.random.randint(0, len(y) - self.chunk_len_32k + 1)
+                    if self.mode == "train"
+                    else (len(y) - self.chunk_len_32k) // 2
+                )
+                y = y[start : start + self.chunk_len_32k]
 
-            # 4. Mel Spectrogram
-            mel = librosa.feature.melspectrogram(
-                y=y,
-                sr=SAMPLE_RATE,
-                n_fft=N_FFT,
-                hop_length=HOP_LENGTH,
-                n_mels=N_MELS,
-                fmin=20,
-                fmax=16000,
-            )
-            mel = librosa.power_to_db(mel, ref=np.max)
-            mel_tensor = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
-
-            if self.augment is not None:
-                mel_tensor = self.augment(mel_tensor)
-
-            # 5. Get labels
-            label_tensor = self.get_labels(row)
-
-            return mel_tensor, label_tensor
+            # 2. Branching Logic
+            if self.model_type == "beats":
+                # --- BEATs Path: Raw Waveform at 16kHz ---
+                y_tensor = torch.from_numpy(y).float()
+                y_16k = self.resampler(y_tensor)
+                # Normalize audio to [-1, 1] range for transformers
+                y_16k = y_16k / (torch.max(torch.abs(y_16k)) + 1e-8)
+                return y_16k, self.get_labels(row)
+            else:
+                # --- EfficientNet Path: Mel Spectrogram ---
+                mel = librosa.feature.melspectrogram(
+                    y=y,
+                    sr=SAMPLE_RATE,
+                    n_fft=N_FFT,
+                    hop_length=HOP_LENGTH,
+                    n_mels=N_MELS,
+                )
+                mel = librosa.power_to_db(mel, ref=np.max)
+                mel_tensor = torch.tensor(mel, dtype=torch.float32).unsqueeze(0)
+                if self.augment:
+                    mel_tensor = self.augment(mel_tensor)
+                return mel_tensor, self.get_labels(row)
 
         except Exception as e:
-            # Recursive recovery: if a file is bad, grab another one
-            new_idx = random.randint(0, len(self.df) - 1)
-            return self.__getitem__(new_idx)
+            return self.__getitem__(random.randint(0, len(self.df) - 1))
