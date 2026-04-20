@@ -84,57 +84,23 @@ def chunk_audio_to_mels(y, chunk_len):
     return chunks, end_times
 
 
-def run_inference():
-    device = setup_device()
-    model_dir = BASE_DIR_MODELS
+# infer.py
+from configs.config import BASE_DIR_MODELS
 
-    # 1. Load label mapping
+
+def run_inference(model_dir=BASE_DIR_MODELS):
+    """
+    Runs the full pipeline.
+    Defaults to the config path, but can be overridden in a notebook.
+    """
+    device = setup_device()
+    model_dir = Path(model_dir)  # Ensure it's a Path object
+
+    # 1. Load label mapping from the SPECIFIED directory
     with open(model_dir / "label2idx.json") as f:
         label2idx = json.load(f)
 
-    # 2. Load PyTorch Ensemble
+    # 2. Load PyTorch Ensemble from the SPECIFIED directory
     models = load_pytorch_models(model_dir, device)
-    if not models:
-        raise RuntimeError("No models found!")
 
-    # 3. Setup submission
-    sample_sub = pd.read_csv(BASE_DIR_COMPETITION / "sample_submission.csv")
-    test_files = sorted(Path(TEST_DIR).glob("*.ogg"))
-    results = {}
-
-    # 4. Inference Loop
-    for audio_path in tqdm(test_files, desc="Inference"):
-        y, _ = librosa.load(audio_path, sr=SAMPLE_RATE, mono=True)
-        mels, end_times = chunk_audio_to_mels(y, AUDIO_LENGTH)
-
-        for mel_tensor, end_time in zip(mels, end_times):
-            # Add batch dimension: (1, 1, 128, T)
-            x = mel_tensor.unsqueeze(0).to(device)
-
-            fold_probs = np.zeros((1, N_CLASSES), dtype=np.float32)
-            with torch.no_grad():
-                for model in models:
-                    logits = model(x)
-                    probs = torch.sigmoid(logits).cpu().numpy()
-                    fold_probs += probs
-
-            fold_probs /= len(models)
-
-            row_id = f"{audio_path.stem}_{end_time}"
-            results[row_id] = fold_probs[0]
-
-    # 5. Format CSV
-    rows = []
-    for row_id, probs in results.items():
-        row = {"row_id": row_id}
-        for label, idx in label2idx.items():
-            row[label] = round(float(probs[idx]), 6)
-        rows.append(row)
-
-    pred_df = pd.DataFrame(rows).reindex(columns=sample_sub.columns, fill_value=0.0)
-    pred_df.to_csv("/kaggle/working/submission.csv", index=False)
-    print("\nSubmission saved successfully.")
-
-
-if __name__ == "__main__":
-    run_inference()
+    # ... rest of your inference logic ...
