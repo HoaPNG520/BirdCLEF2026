@@ -40,7 +40,7 @@ def load_pytorch_models(model_dir, device, n_folds=5):
     model_dir = Path(model_dir)
     models = []
     for fold in range(n_folds):
-        path = model_dir / f"effnet_fold{fold}.pth"
+        path = model_dir / f"effnet_fold{fold}_best.pth"
         if path.exists():
             model = EfficientNetClassifier(n_classes=N_CLASSES, pretrained=False).to(
                 device

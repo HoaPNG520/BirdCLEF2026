@@ -154,7 +154,7 @@ def train_fold(fold, epochs=20, lr=1e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
         if cmap > best_cmap:
             best_cmap = cmap
             patience_counter = 0  # Reset
-            torch.save(model.state_dict(), save_dir / f"effnet_fold0_best.pth")
+            torch.save(model.state_dict(), save_dir / f"effnet_fold{fold}_best.pth")
         else:
             patience_counter += 1
 
