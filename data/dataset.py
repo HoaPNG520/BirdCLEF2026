@@ -50,6 +50,16 @@ class BirdDataset(Dataset):
         # BEATs resampler (32kHz -> 16kHz)
         self.resampler = T.Resample(32000, 16000)
 
+    def get_labels(self, row):
+        label = torch.zeros(N_CLASSES, dtype=torch.float32)
+        primary = str(row["primary_label"])
+        if primary in self.label2idx:
+            label[self.label2idx[primary]] = 1.0
+        for sec in row.get("sec_parsed", []):
+            if str(sec) in self.label2idx:
+                label[self.label2idx[str(sec)]] = 0.5
+        return label
+
     def __getitem__(self, idx):
         try:
             row = self.df.iloc[idx]
