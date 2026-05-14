@@ -64,6 +64,14 @@ def train_fold(fold, epochs=20, lr=2e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
         df = make_folds(df, n_folds=5)
 
     train_df, val_df = get_fold(df, fold)
+    from torch.utils.data import WeightedRandomSampler
+
+    y_train_prim = np.array([label2idx.get(str(l), 0) for l in train_df["primary_label"]])
+    class_counts  = np.bincount(y_train_prim, minlength=N_CLASSES)
+    class_weights = np.zeros(N_CLASSES, dtype=np.float32)
+    class_weights[class_counts > 0] = 1.0 / class_counts[class_counts > 0]
+    sample_weights = class_weights[y_train_prim]
+    sampler = WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
 
     train_dataset = BirdDataset(
         train_df, label2idx, augment=get_spec_augment(), mode="train"
@@ -73,7 +81,7 @@ def train_fold(fold, epochs=20, lr=2e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
-        shuffle=True,
+        sampler=sampler,
         num_workers=NUM_WORKERS,
         drop_last=True,
         persistent_workers=NUM_WORKERS > 0,
@@ -90,7 +98,9 @@ def train_fold(fold, epochs=20, lr=2e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
 
     # ── Model ─────────────────────────────────────────────────────────────────
     model = EfficientNetClassifier(n_classes=N_CLASSES).to(device)
-    criterion = nn.BCEWithLogitsLoss()
+    # ~1-2 positives out of 234 classes → ratio ~117:1
+    pos_weight = torch.ones(N_CLASSES, device=device) * 100
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     scaler = torch.amp.GradScaler()
