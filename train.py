@@ -51,7 +51,9 @@ def padded_cmap(y_true, y_pred, padding=5):
 # ── Training ───────────────────────────────────────────────────────────────────
 
 
-def train_fold(fold, epochs=20, lr=2e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODELS):
+def train_fold(
+    fold, epochs=20, lr=2e-3, mixup_prob=0.5, pos_weight=100, save_dir=BASE_DIR_MODELS
+):
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -66,12 +68,16 @@ def train_fold(fold, epochs=20, lr=2e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
     train_df, val_df = get_fold(df, fold)
     from torch.utils.data import WeightedRandomSampler
 
-    y_train_prim = np.array([label2idx.get(str(l), 0) for l in train_df["primary_label"]])
-    class_counts  = np.bincount(y_train_prim, minlength=N_CLASSES)
+    y_train_prim = np.array(
+        [label2idx.get(str(l), 0) for l in train_df["primary_label"]]
+    )
+    class_counts = np.bincount(y_train_prim, minlength=N_CLASSES)
     class_weights = np.zeros(N_CLASSES, dtype=np.float32)
     class_weights[class_counts > 0] = 1.0 / class_counts[class_counts > 0]
     sample_weights = class_weights[y_train_prim]
-    sampler = WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
+    sampler = WeightedRandomSampler(
+        sample_weights, num_samples=len(sample_weights), replacement=True
+    )
 
     train_dataset = BirdDataset(
         train_df, label2idx, augment=get_spec_augment(), mode="train"
@@ -99,7 +105,7 @@ def train_fold(fold, epochs=20, lr=2e-3, mixup_prob=0.5, save_dir=BASE_DIR_MODEL
     # ── Model ─────────────────────────────────────────────────────────────────
     model = EfficientNetClassifier(n_classes=N_CLASSES).to(device)
     # ~1-2 positives out of 234 classes → ratio ~117:1
-    pos_weight = torch.ones(N_CLASSES, device=device) * 100
+    pos_weight = torch.ones(N_CLASSES, device=device) * pos_weight
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
