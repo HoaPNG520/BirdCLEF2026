@@ -105,8 +105,8 @@ def train_fold(
     # ── Model ─────────────────────────────────────────────────────────────────
     model = EfficientNetClassifier(n_classes=N_CLASSES).to(device)
     # ~1-2 positives out of 234 classes → ratio ~117:1
-    pos_weight = torch.ones(N_CLASSES, device=device) * pos_weight
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    pos_w_tensor = torch.ones(N_CLASSES, device=device) * pos_weight
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_w_tensor)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     scaler = torch.amp.GradScaler()
